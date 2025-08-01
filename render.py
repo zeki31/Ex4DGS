@@ -13,7 +13,7 @@ import os
 from os import makedirs
 import json
 import time
-
+import cv2
 import torch
 import torchvision
 from tqdm import tqdm
@@ -60,32 +60,36 @@ def render_set(model_path, name, iteration, scene, gaussians, pipeline, backgrou
     lpipssvggs = []
     image_names = []
     times = []
-    
-    while(len(viewpoint_stack)):
-        cam = viewpoint_stack.pop(0)
-        gt = next(images).cuda()
+    with tqdm(total=len(viewpoint_stack), desc="Rendering") as pbar:
+        while(len(viewpoint_stack)):
+            cam = viewpoint_stack.pop(0)
+            gt = next(images).cuda()
 
-        if idx % inverval == 0:
-            rendering_dict = render(cam, gaussians, pipeline, background, near=near, far=far)
-            rendering = rendering_dict["render"]
-            
-            img_name = cam.image_name
-            
-            if save_img:
-                torchvision.utils.save_image(rendering, os.path.join(render_path, img_name))
-            psnrs.append(psnr(rendering.unsqueeze(0), gt.unsqueeze(0)))
-            ssims.append(ssim(rendering.unsqueeze(0), gt.unsqueeze(0))) 
-            skssims.append(sk_ssim(rendering.detach().cpu().numpy(), gt.detach().cpu().numpy(), data_range=1, multichannel=True, channel_axis=0)) 
-            skssims2.append(sk_ssim(rendering.detach().cpu().numpy(), gt.detach().cpu().numpy(), data_range=2, multichannel=True, channel_axis=0)) 
-            lpipss.append(lpips(rendering.unsqueeze(0), gt.unsqueeze(0), net_type='alex')) #
-            lpipssvggs.append(lpips(rendering.unsqueeze(0), gt.unsqueeze(0), net_type='vgg'))
-            
-            image_names.append(img_name)
+            if idx % inverval == 0:
+                rendering_dict = render(cam, gaussians, pipeline, background, near=near, far=far)
+                rendering = rendering_dict["render"]
+                
+                img_name = cam.image_name
+                if "1_fixed" in img_name:
+                    img_name = img_name.split("/")[0] + "_" + img_name.split("/")[1] + "_" + f"{idx * 5:05d}.jpg"
+                
+                if save_img:
+                    torchvision.utils.save_image(rendering, os.path.join(render_path, img_name.replace("/", "_")))
+                psnrs.append(psnr(rendering.unsqueeze(0), gt.unsqueeze(0)))
+                ssims.append(ssim(rendering.unsqueeze(0), gt.unsqueeze(0))) 
+                skssims.append(sk_ssim(rendering.detach().cpu().numpy(), gt.detach().cpu().numpy(), data_range=1, multichannel=True, channel_axis=0)) 
+                skssims2.append(sk_ssim(rendering.detach().cpu().numpy(), gt.detach().cpu().numpy(), data_range=2, multichannel=True, channel_axis=0)) 
+                lpipss.append(lpips(rendering.unsqueeze(0), gt.unsqueeze(0), net_type='alex')) #
+                lpipssvggs.append(lpips(rendering.unsqueeze(0), gt.unsqueeze(0), net_type='vgg'))
+                
+                image_names.append(img_name)
 
-            psnr_sum += psnr(rendering.unsqueeze(0), gt.unsqueeze(0)).mean().detach().item()
-            count += 1
-        
-        idx += 1
+                psnr_sum += psnr(rendering.unsqueeze(0), gt.unsqueeze(0)).mean().detach().item()
+                count += 1
+
+            idx += 1
+
+            pbar.update(1)
         
     # start timing
     for _ in range(20):
@@ -121,7 +125,13 @@ def render_set(model_path, name, iteration, scene, gaussians, pipeline, backgrou
         json.dump(per_view_results, fp, indent=True)
 
     print("Set " + name + ", PSNR: ", psnr_sum / count, ", Count: ", count)
-    
+
+    if save_img:
+        # Save the rendered images as a video
+        output_path = os.path.join(model_path, name, "itrs_{}".format(iteration), "renders.mp4")
+        print("Saving video to", output_path)
+        convert_images_to_video(render_path, output_path, fps=12)
+
 
 def render_sets(dataset : ModelParams, iteration : int, opt : OptimizationParams, pipeline : PipelineParams, skip_train : bool, train_inverval : int, skip_test : bool, save_img : bool):
     with torch.no_grad():
@@ -137,6 +147,27 @@ def render_sets(dataset : ModelParams, iteration : int, opt : OptimizationParams
         if not skip_test:
              render_set(dataset.model_path, "test", scene.loaded_iter, scene, gaussians, pipeline, background, near=dataset.near, far=dataset.far, save_img=save_img)
 
+def convert_images_to_video(input_folder, output_file, fps):
+    # Get the list of image files in the input folder
+    image_files = sorted([f for f in os.listdir(input_folder) if f.endswith('.jpg') or f.endswith('.png')])
+
+    # Read the first image to get its dimensions
+    first_image = cv2.imread(os.path.join(input_folder, image_files[0]))
+    height, width, _ = first_image.shape
+
+    # Create a VideoWriter object to save the video
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Specify the codec for the output video file
+    video = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
+
+    # Iterate over each image and write it to the video
+    for image_file in image_files:
+        image_path = os.path.join(input_folder, image_file)
+        frame = cv2.imread(image_path)
+        video.write(frame)
+
+    # Release the video writer and close the video file
+    video.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     # Set up command line argument parser
