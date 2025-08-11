@@ -317,6 +317,9 @@ def readOursCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, st
     totalcamname = []
     for idx, key in enumerate(cam_extrinsics): # first is cam20_ so we strictly sort by camera name
         extr = cam_extrinsics[key]
+        n_frames = int(extr.name.split("/")[-1].split(".")[0]) // 5
+        if n_frames >= 100:
+            continue
         totalcamname.append(extr.name)
     
     sortedtotalcamelist = natsort.natsorted(totalcamname)
@@ -358,7 +361,8 @@ def readOursCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, st
         
         img_name = extr.name.replace("_resized", "")
         if "1_fixed" in img_name:
-            dur = (len(cam_extrinsics) - 1) // 3
+            # dur = (len(cam_extrinsics) - 1) // 3
+            dur = 100
             for timestep in range(dur):
                 image_path = os.path.join(images_folder, img_name.split("/")[0], img_name.split("/")[1], f"{timestep * 5:05d}.jpg")
                 timestamp = timestep - startime
@@ -660,8 +664,8 @@ def readColmapSceneInfoOurs(path, args):
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
      
     # if eval:
-    train_cam_infos = [_ for _ in cam_infos if "1_fixed" not in _.image_path]
-    test_cam_infos = [_ for _ in cam_infos if "1_fixed" in _.image_path]
+    train_cam_infos = [info for info in cam_infos if "1_fixed" not in info.image_path]
+    test_cam_infos = [info for info in cam_infos if "1_fixed" in info.image_path]
     uniquecheck = []
     for cam_info in test_cam_infos:
         if cam_info.image_path not in uniquecheck:

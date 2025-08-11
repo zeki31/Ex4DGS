@@ -12,4 +12,5 @@ CUDA_VISIBLE_DEVICES=$GPU_ID python render.py \
     --model_path $MODEL_PATH \
     --source_path $SOURCE_PATH \
     --iteration 40000 \
-    --save_img
+    --save_img \
+    --skip_train
